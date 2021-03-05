@@ -9,9 +9,6 @@ output: pdf_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-# PROBLEMS
-So basically, there is an RDS file 'alltexts_fin_2017' but the 2018 one is not saved as such (before row ~400). Somethings relating to the 2018 data are therefore missing which makes it impossible to run the entirety of the code here. 
-
 
 # 1. Introduction
 In this markdown script I have included all of the R code that I used to import, process, and analyze the 1-minute speeches from the 115th Congress House of Representatives, January 2017 through July 2018.
