@@ -1,2 +1,2 @@
-# effective-octo-funicular
+# 115CongressSpeeches
 Analysis of one-minutes speeches given in the House of Representatives during the 115th Congress.
