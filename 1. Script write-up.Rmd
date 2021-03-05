@@ -1,0 +1,584 @@
+---
+title: "Markdown of R Scripts"
+author: "Emily Raubach"
+date: "2018"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# PROBLEMS
+So basically, there is an RDS file 'alltexts_fin_2017' but the 2018 one is not saved as such (before row ~400). Somethings relating to the 2018 data are therefore missing which makes it impossible to run the entirety of the code here. 
+
+
+# 1. Introduction
+In this markdown script I have included all of the R code that I used to import, process, and analyze the 1-minute speeches from the 115th Congress House of Representatives, January 2017 through July 2018.
+
+As always in R, the first step is to load the necessary library of packages. 
+```{r message=FALSE, warning=FALSE}
+# load library
+library("rjson")
+library("RCurl")
+library("stringr")
+library("dplyr")
+library("devtools")
+```
+
+## 2. Import Data
+# 2.1. Import 2017 Data
+
+The data was scraped from the Congressional Record and saved as JSON files, which we load here and save as individual files named after the month that they contain. Shown here are the 2017 files, in the next section I also cover the process I used to import the 2018 data. 
+
+```{r}
+january <- 'House_January_2017.json'
+february <- 'House_February_2017.json'
+march <- 'House_March_2017.json'
+april <- 'House_April_2017.json'
+may <- 'House_May_2017.json'
+june <- 'House_June_2017.json'
+july <- 'House_July_2017.json'
+august <- 'House_August_2017.json'
+september <- 'House_September_2017.json'
+october <- 'House_October_2017.json'
+november <- 'House_November_2017.json'
+december <- 'House_December_2017.json'
+```
+
+The following is a function to import the text files. This includes preprocessing such as taking out blank spaces, special characters, links,  and filtering for speeches that start with 'asked and was given permission' (how 1-minute speeches begin).
+
+```{r}
+import_data <- function(filename) {
+  
+  data <- fromJSON(sprintf("[%s]", 
+                           paste(readLines(paste("Congress Speech Data/",filename, 
+                            sep = "")),collapse=",")))
+  
+  texts <- sapply(data, "[[", "text")
+  date <- sapply(data, "[[", "date")
+  
+  texts <- gsub("\n", "", texts)
+  texts <- gsub("____________________", "", texts)
+  texts <- gsub("[ ]{2,}", " ", texts)
+  texts <- gsub('.*.gov\\]', '', texts)
+  texts <- str_trim(texts, side = "both")
+  texts <- gsub("\\[\\[Page H[0-9]{4}\\]\\]", " ", texts)
+  
+  ind_valid <- grepl('asked and was given 
+                     permission to address the House for [1-9]* minutes?', texts)
+  
+  texts_valid <- texts[ind_valid]
+  
+  return(texts_valid)
+}
+```
+
+This command runs the function on each individual file, while manually changing the month. 
+```{r}
+texts_proc <- import_data(december)
+```
+
+Create an empty dataframe to be filled later. 
+
+```{r}
+# number of observations
+n <- length(texts_proc)
+
+# initialize empty dataframe
+df <- data.frame(name = rep(0, n), sex = rep(0,n), 
+                 state = rep(0,n), text = rep(0,n))
+```
+
+The following is a function to sift out the names of the members giving a speech, while deleting the initial address to the Speaker of the House. Any entries that are missing the name of the Congress member are printed in the consol after the function is run. This allows for one to fill in the missing information on a case by case basis. In the 2017 and 2018 data there were less than five cases that needed to be manually entered. 
+
+```{r message=FALSE, warning=FALSE}
+# LOOP to filter out the names ending in Mr/Madam speaker
+for (i in 1:n) {
+  
+  # extract the name, state (until 'Mr./Madam Speaker')
+  basics <- str_extract(texts_proc[i], "(Mr|Ms|Mrs|Miss)\\.?.{0,55}(Mr\\.|Madam)[[:space:]]?Speaker")
+  
+  # remove 'Mr./Madam Speaker'
+  basics <- word(basics, 1, sep = 
+                   "\\.[[:space:]](Mr\\.|Madam)[[:space:]]?Speaker")
+  
+  # extract state
+  state <- str_trim(word(basics, 2, sep = "of"), side = "both")
+  
+  # extract sex
+  sex <- ifelse(word(basics, 1, sep = 
+                       "(\\.|[[:space:]])") == "Mr", "M", "F")
+  
+  # extract last name
+  name <- word(basics, 1, sep = "[[:space:]]of.*")
+  name <- str_trim(word(name, 2, sep = 
+                          "(Mrs|Mr|Ms|Miss)\\.?"), side = "both")
+
+  text <- word(texts_proc[i], 2, sep = "(Mr|Ms|Mrs|Miss)\\.?.{0,55}(Mr\\.|Madam)[[:space:]]?Speaker,?.?")
+  
+  # fill into the empty dataframe
+  df[i, ] = c(name, sex, state, text)
+  
+  # print index of rows that have missing name
+  if (is.na(name)) {print(paste("Look up manually:", i))}
+
+}
+```
+
+Export the newly created dataframe as a .txt file. While one can write to a CSV, I had issues with the separators due to the text files containing commas. Using other separators (tab, semicolon, etc.) did not solve the problem. Thus I saved the .txt files subsequently as CSVs which then solved my problem. 
+
+```{r}
+# Export to CSV (csv2 uses semicolons by default as a separator)
+ write.table(df, "decembertexts.txt", sep = "\t", row.names=FALSE)
+```
+
+Load the individual files and combine them to create a corpus file.
+
+```{r}
+# load all individual csvs and create a corpus of 2017 files
+temp <- list.files(path = "Cleaned CSVs 2017/", pattern="*.csv")
+corpus <- do.call(rbind, lapply(temp, function(x) 
+  read.csv2(paste("Cleaned CSVs 2017/", x, sep = ""), 
+            sep = ";", stringsAsFactors = FALSE)))
+```
+
+# 2.2. Import 2018 Data
+Up to this point, I was working only with the speech data from 2017. However, in order to increase my sample size I decided to also include the 1-minute speeches from the first half of 2018, January through July. As this happened at a later point in time I had to do a few things differently, which I will detail below. 
+
+First of all, I loaded the individual JSON files. 
+
+```{r}
+january <- 'January_2018.json'
+february <- 'February_2018.json'
+march <- 'March_2018.json'
+april <- 'April_2018.json'
+may <- 'May_2018.json'
+june <- 'June_2018.json'
+july <- 'July_2018.json'
+august <- 'August_2018.json'
+```
+
+Run the following function for each month to import and clean the data.
+
+```{r}
+import_data <- function(filename) {
+  data <- fromJSON(sprintf("[%s]", paste(readLines(paste("Congress Speech Data/", filename, sep = "")),collapse=",")))
+  
+  texts <- sapply(data, "[[", "text")
+  date <- sapply(data, "[[", "date")
+  
+  texts <- gsub("\n", "", texts)
+  texts <- gsub("____________________", "", texts)
+  texts <- gsub("[ ]{2,}", " ", texts)
+  texts <- gsub('.*.gov\\]', '', texts)
+  texts <- str_trim(texts, side = "both")
+  texts <- gsub("\\[\\[Page H[0-9]{4}\\]\\]", " ", texts)
+  
+  ind_valid <- grepl('asked and was given permission 
+                     to address the House for [0-9]* minutes?', texts)
+  
+  texts_valid <- texts[ind_valid]
+  
+  return(texts_valid)
+}
+
+# run function (change month)
+texts_proc <- import_data(january)
+```
+
+Create an empty dataframe and then use a loop to extract the name, sex, state, and texts, filling them into the dataframe while filtering out unwanted elements, such as initial references to the Speaker. This is more or less identical to the process used for the 2017 data. 
+
+```{r message=FALSE, warning=FALSE}
+# number of observations
+n <- length(texts_proc)
+
+# manually set month as number
+month_dig = 7
+
+# initialize empty dataframe
+df <- data.frame(name = rep(0, n), sex = rep(0,n), 
+                 state = rep(0,n), text = rep(0,n), month = rep(0,n))
+
+# LOOP to filter out the names ending in Mr/Madam speaker
+for (i in 1:n) {
+  
+  # extract the name, state (until 'Mr./Madam Speaker')
+  basics <- str_extract(texts_proc[i], "(Mr|Ms|Mrs|Miss)\\.?.{0,55}(Mr\\.|Madam)[[:space:]]?Speaker")
+  
+  # remove 'Mr./Madam Speaker'
+  basics <- word(basics, 1, sep = 
+                   "\\.[[:space:]](Mr\\.|Madam)[[:space:]]?Speaker")
+  
+  # extract state
+  state <- str_trim(word(basics, 2, sep = "of"), side = "both")
+  
+  # extract sex
+  sex <- ifelse(word(basics, 1, sep = 
+                       "(\\.|[[:space:]])") == "Mr", "M", "F")
+  
+  # extract last name
+  name <- word(basics, 1, sep = "[[:space:]]of.*")
+  name <- str_trim(word(name, 2, sep = 
+                          "(Mrs|Mr|Ms|Miss)\\.?"), side = "both")
+  
+  # extract the text
+  text <- word(texts_proc[i], 2, sep = "(Mr|Ms|Mrs|Miss)\\.?.{0,55}(Mr\\.|Madam)[[:space:]]?Speaker,?.?")
+  
+  # fill in dataframe
+  df[i, ] = c(name, sex, state, text, month_dig)
+  
+  # print index of rows that have missing name
+  if (is.na(name)) {print(paste("Look up manually:", i))}
+  
+}
+
+# export to txt
+write.table(df, "july2018.txt", sep = "\t", row.names=FALSE)
+
+```
+
+# 3. Preprocessing
+
+## 3.1. 2017
+
+Load 2017 data and the members file.
+```{R}
+# load all 2017 CSVs
+temp <- list.files(path = "Cleaned CSVs 2017/", pattern="*.csv")
+
+# combine the individual files
+alltexts <- do.call(rbind, lapply(temp, function(x) read.csv2(paste("Cleaned CSVs 2017/", x, sep = ""), sep = ";", stringsAsFactors = FALSE)))
+
+# select columns
+alltexts <- select(alltexts, name, sex = gender, state, month, text)
+
+# load the Congress members file
+members <- read.csv2("Congressmembers3.csv", sep = ";", header = TRUE)
+```
+
+Adding or correcting the states in particular cases, in order to make it easier to connect the Congressional Record data to the Congressmembers dataset. 
+
+```{r}
+# Higgins from NY #2389 in November is NA
+alltexts$state[alltexts$name == "HIGGINS" & is.na(alltexts$state)] <- "New York"
+
+# Poe from Texas and TEXAS
+alltexts$state[alltexts$name == "POE" & alltexts$state == "TEXAS"] <- "Texas"
+
+# Raskin from Maryland
+alltexts$state[alltexts$name == "RASKIN"] <- "Maryland"
+```
+
+Create unique ID and variable for number of speeches given. 
+
+```{R}
+# create unique ID
+alltexts <- alltexts %>% mutate(ID = group_indices_(alltexts, .dots=c("name", "sex", "state")))
+
+# create column for speech count
+speechcount <- group_by(alltexts, ID, name) %>% summarize(count = n())
+```
+
+Congress members who gave more than one speech have one row per speech. For the purposes of text analysis, these texts need to be aggragated, thus in the following step I group by ID and combine all texts. The end result is that each member occupies only one row, regardless of how many speeches they gave. 
+
+```{R}
+# aggregate texts by member
+alltexts_ind <- duplicated(alltexts[, c("ID", "name", "state", "sex")])
+alltexts_polit <- alltexts[!alltexts_ind, c("ID", "name", "state", "sex")]
+
+alltexts_agg <- alltexts %>% 
+  group_by(ID) %>% 
+  summarize(text = paste0(text, collapse = " ")) %>%
+  left_join(alltexts_polit, by = "ID")
+
+# merge with speechcount variable
+alltexts_agg <- alltexts_agg %>% 
+  left_join(speechcount[, c("ID", "count")], by = "ID")
+
+alltexts_agg <- select(alltexts_agg, ID, name, sex, state, text, speech_count = count)
+```
+
+Merge the members data with the combined 2017 data, while selecting variables, then reorder the columns. 
+
+```{R}
+# combine the CR data with the members data
+alltexts_agg <- left_join(alltexts_agg, members[, c("ID", "State", "Region", "Party.General", "Christian", "Name")], by = "ID")
+
+# reorder the columns
+alltexts_fin <- alltexts_agg %>% select(ID, Name, sex, State, Region, Party.General, Christian, speech_count, text) 
+```
+
+Save the combined 2017 data as an RDS file. 
+
+```{R}
+saveRDS(alltexts_fin, file = "alltexts_fin_2017.rds")
+```
+
+# 3.2. 2018
+
+Load 2018 data and select columns.
+
+```{R}
+# load 2018 data
+temp <- list.files(path = "Cleaned CSVs 2018/", pattern="*.csv")
+alltexts <- do.call(rbind, lapply(temp, function(x) read.csv2(paste("Cleaned CSVs 2018/", x, sep = ""), sep = ";", stringsAsFactors = FALSE)))
+
+# select columns
+alltexts <- select(alltexts, name, sex, state, month, text)
+```
+
+Remove Congressional Record page number from row 418. 
+
+```{R}
+# remove from row 418
+alltexts$text <- gsub("[[Page H623]]", " ", alltexts$text)
+```
+
+Change NA to 'none' in the variable 'State.' This facilitates a data merge later on, as missing values complicate things. Add state to Congress member Raskin, as this was an issue in the 2017 data. 
+
+```{R}
+# change NA to 'none' in variable 'state'
+alltexts$state[is.na(alltexts$state)] <- 'none'
+
+# Raskin from Maryland
+alltexts$state[alltexts$name == "RASKIN"] <- "Maryland"
+```
+
+Create a list of unique speakers, including sex and state, from the 2018 data. 
+
+```{r}
+# export unique speakers to manually match the IDs
+unique_speakers <- alltexts[,c('name','sex','state')]
+
+# get only unique speakers
+unique_speakers <- unique_speakers[!duplicated(unique_speakers), ]
+
+# order them alphabetically
+unique_speakers <- unique_speakers[order(unique_speakers$name), ]
+
+# export unique_speakers to .txt
+write.table(unique_speakers, "unique_speakers2018.txt", sep = "\t", row.names = FALSE)
+```
+
+Using the unique speakers .txt file, which I ordered alphabetically, I manually added in the IDs from that were created for the 2017 data. In the next step I re-upload the new .txt file with the added IDs. 
+
+```{r}
+# reimport unique_speakers with IDs
+unique_speakers <- read.csv2("unique_speakers2018.csv", sep = ";", stringsAsFactors = FALSE)
+```
+
+Change NA to 'none' for the variable 'State.'
+
+```{r}
+# change NA to 'none' in variable 'state'
+unique_speakers$state[is.na(unique_speakers$state)] <- 'none'
+```
+
+# Combine 2017 and 2018 Data
+# Merge Congressmembers and Congressional Record texts
+
+Before we can combine the two RDS files, there are some minor changes that need to be made in order to match them up. 
+
+```{R}
+# load the RDS files
+alltexts_fin_2017 <- readRDS("alltexts_fin_2017.rds")
+
+# remove variable 'Region.division', 'sex', and 'Region' from 2017 data
+alltexts_fin_2017 <- alltexts_fin_2017[ ,!(names(alltexts_fin_2017) %in% c('Region.division','sex','Region'))]
+```
+
+Here we import the dataframe with variables specific to to each Congress member. Then I choose the variables that are relevant for my analysis. Finally, I merge these variables to the aggregated alltexts dataframe, so that I have all of the relevant information in the same place.  
+
+```{R}
+# import congressmember info
+members <- read.csv2("Congressmembers3.csv", sep = ";", header = TRUE)
+
+# variables to import from congressmembers file (out of all the possible variables)
+var_memb <- c("ID", "Sex", "State", "Region", "Party.General", "Christian", 
+              "Name", "Bachelors.Degree", "Masters.Degree", "Doctorate",
+              "Doctor.of.Law", "Doctor.of.Medicine", "Assumed.office", "Born")
+
+# use ID to merge party identity info to the text file
+# make sure to do this only once, as it otherwise doubles the new variables! 
+alltexts_agg <- left_join(alltexts_agg, members[ ,var_memb], by = "ID")
+
+# where are there still missing values?
+sapply(alltexts_agg, function(x) sum(is.na(x)))
+```
+
+# Create New Variables
+Using information from the Congressmembers dataframe I compute age and seniority, while also coding a measurement for education level and creating a dummy variable for those who have a JD. 
+
+```{R}
+# compute age in 2018, using birth year
+alltexts_agg$age <- 2018 - alltexts_agg$Born
+
+# compute seniority in 2018, using the year that they were elected to the House
+alltexts_agg$seniority <- 2018 - alltexts_agg$Assumed.office
+
+# code education as categorical variable
+# 0 nothing or associates, 1 Bachelor, 2 Master or MD or JD., 3 Doctorate
+alltexts_agg$educ <- 0
+alltexts_agg$educ[alltexts_agg$Bachelors.Degree == 1] <- 1
+alltexts_agg$educ[alltexts_agg$Masters.Degree == 1] <- 2
+alltexts_agg$educ[alltexts_agg$Doctor.of.Law == 1] <- 2
+alltexts_agg$educ[alltexts_agg$Doctor.of.Medicine == 1] <- 2
+alltexts_agg$educ[alltexts_agg$Doctorate == 1] <- 3
+
+# code dummy variable for law background
+alltexts_agg$JD_degree <- ifelse(alltexts_agg$Doctor.of.Law == 1, 1, 0)
+```
+
+Reorder the variables for a clearer, more organized dataframe and save as an RDS file.
+
+### Problem here is that the variables have been added on twice (from somethere above) and thus this is out of place
+
+```{R}
+# select and reorder variables and create final data frame
+#alltexts_fin_all <- alltexts_agg %>% 
+  #select(ID, Name, Sex, State, Region, Party.General, Christian, 
+         #age, seniority, educ, JD_degree, speech_count, text) 
+
+# save resulting dataframe as
+#saveRDS(alltexts_fin, file = "alltexts_2018.rds")
+
+```
+
+Check variable types and change factor variables to character variables. 
+
+```{r}
+# load 2018 data
+alltexts17_fin2 <- readRDS("alltexts17_fin2.rds")
+##alltexts_fin_2018 <- readRDS("alltexts_fin_2018.rds")
+
+# check variable types
+str(alltexts_fin_2017)
+##str(alltexts_fin_2018)
+
+# change factor variables to character variables
+# 2017 data
+alltexts17_fin2$Name <- as.character(alltexts17_fin2$Name)
+alltexts17_fin2$State <- as.character(alltexts17_fin2$State)
+alltexts17_fin2$Region <- as.character(alltexts17_fin2$Region)
+alltexts17_fin2$Party.General <- as.character(alltexts17_fin2$Party.General)
+
+# 2018 data
+#alltexts18_fin$Name <- as.character(alltexts18_fin$Name)
+#alltexts18_fin$State <- as.character(alltexts18_fin$State)
+#alltexts18_fin$Region <- as.character(alltexts18_fin$Region)
+#alltexts18_fin$Party.General <- as.character(alltexts18_fin$Party.General)
+```
+
+Create a list of the IDs and names from both the 2017 and 2018 data, in order to manually check to make sure that all names and IDs are matched up. 
+
+```{r}
+# check that IDs match
+dfCheckIDs <- full_join(alltexts17_fin2[,c('ID','Name')], 
+                        alltexts18_fin[,c('ID','Name')], by = 'ID')
+```
+
+Add the speech counts from both 2017 and 2018, creating one total speech count variable. 
+
+```{r}
+# sum up speech counts
+speechcount <- 
+  bind_rows(alltexts_fin_2017[,c("ID","speech_count")], alltexts18_fin[,c("ID","speech_count")]) %>%
+  group_by(ID) %>%
+  summarize(speechcount = sum(speech_count))
+```
+
+Combine the text files from 2017 and 2018. 
+
+```{r}
+# merge text files
+textsjoined <- 
+  bind_rows(alltexts17_fin2[,c("ID","text")], alltexts18_fin[,c("ID","text")]) %>%
+  group_by(ID) %>%
+  summarize(text = paste0(text, collapse = " "))
+```
+
+Finalize the dataframe with some minimal changes. 
+
+```{r}
+# concat dataframes
+dfjoined <- bind_rows(alltexts17_fin2[,!(names(alltexts17_fin2) %in% c('text','speech_count'))],
+                      alltexts18_fin[,!(names(alltexts18_fin) %in% c('text','speech_count'))])
+
+# remove duplicates
+# for those members who spoke in 17 and 18, they're in there twice, so we remove the duplicate
+dfjoined <- dfjoined[!duplicated(dfjoined),]
+
+# join speech_count and texts back to congress member's attributes
+df_clean <- left_join(dfjoined, speechcount, by = 'ID') %>%
+  left_join(textsjoined, by = 'ID')
+
+# where are still missing values?
+sapply(df_clean, function(x) sum(is.na(x)))
+
+# check data types
+str(df_clean)
+```
+
+Define the variable types. 
+
+```{r}
+# define factor variables
+df_clean$Sex <- factor(df_clean$Sex)
+df_clean$State <- factor(df_clean$State)
+df_clean$Region <- factor(df_clean$Region)
+df_clean$Party.General <- factor(df_clean$Party.General)
+df_clean$Christian <- factor(df_clean$Christian)
+df_clean$educ <- factor(df_clean$educ)
+df_clean$JD_degree <- factor(df_clean$JD_degree)
+
+# define integer variables
+df_clean$age <- as.integer(df_clean$age)
+df_clean$seniority <- as.integer(df_clean$seniority)
+```
+
+Finally, I save the clean dataframe as an RDS file that I use for my analyses. 
+
+```{R}
+# Save dataframe as R file
+saveRDS(df_clean, file = "df_clean.rds")
+```
+
+
+------------------------------------ END --------------------------------------
+
+# CAN I DELETE THIS STUFF??
+
+```{r}
+# concat dataframes
+dfjoined <- bind_rows(alltexts17_fin2[,!(names(alltexts17_fin2) %in% c('text','speech_count'))],
+                      alltexts18_fin[,!(names(alltexts18_fin) %in% c('text','speech_count'))])
+
+# remove duplicates
+# for those members who spoke in 17 and 18, they're in there twice, so we remove the duplicate
+dfjoined <- dfjoined[!duplicated(dfjoined),]
+
+# join speech_count and texts back to congress member's attributes
+df_clean <- left_join(dfjoined, speechcount, by = 'ID') %>%
+  left_join(textsjoined, by = 'ID')
+
+# where are still missing values?
+sapply(df_clean, function(x) sum(is.na(x)))
+
+# check data types
+str(df_clean)
+```
+
+# WHAT IS THIS
+Create a combined file of all 2017 and 2018 texts.
+
+```{r}
+# load all individual csvs and create combined file
+temp <- list.files(path = "Cleaned CSVs All/", pattern="*.csv")
+
+alltexts <- do.call(rbind, lapply(temp, function(x) read.csv2(paste("Cleaned CSVs All/", x, sep = ""), sep = ";", stringsAsFactors = FALSE)))
+```
+
+```{r}
+
+```

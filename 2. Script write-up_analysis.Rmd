@@ -1,0 +1,700 @@
+---
+title: "2. Script write-up_analysis"
+author: "Emily Raubach"
+date: "2018"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## First steps
+
+Load the necessary packages from the library. 
+
+```{r cars, message=FALSE, warning=FALSE}
+library("rjson")
+library("RCurl")
+library("stringr")
+library("dplyr")
+library("tm")
+library("quanteda")
+library("devtools")
+library("spacyr")
+library("purrr")
+library("ggplot2")
+library("tidytext")
+
+# Install Quanteda dictionaries from GitHub
+# devtools::install_github("kbenoit/quanteda.dictionaries")
+# devtools::install_github("quanteda/quanteda.corpora")
+library("quanteda.corpora")
+library("quanteda.dictionaries")
+```
+
+Import the combined data file. 
+
+```{R}
+# import data
+alltexts_clean <- readRDS("df_clean.rds")
+
+# can also load the dataframe with LSD results
+alltexts_clean_lsd <- readRDS("alltexts_clean_lsd.rds")
+
+# create a corpus
+my_corpus <- corpus(alltexts_clean)
+# alternate corpus
+# my_corpus <- corpus(alltexts_clean_lsd)
+
+# summary
+head(summary(my_corpus))
+```
+
+Remove the one independent congress member: (already done in the LSD RDS file)
+```{R}
+# remove independent member
+alltexts_clean <- alltexts_clean[!(alltexts_clean$Party.General %in% c('Independent')),]
+```
+
+## Add LIWC data to the dataframe
+```{R warning=FALSE}
+# Load the csv files
+LIWC_Rep <- read.csv2(file = "LIWC_Rep.csv")
+LIWC_Dem <- read.csv2(file = "LIWC_Dem.csv")
+
+# Combine the files to create one dataframe
+LIWC <- rbind(LIWC_Dem, LIWC_Rep)
+
+# Add the LIWC files to the clean Alltexts file (without LSD analyses)
+alltexts_LIWC <- left_join(alltexts_clean, LIWC, by = "Name")
+
+# Save as an RDS file
+saveRDS(alltexts_LIWC, file = "alltexts_LIWC.rds")
+```
+
+## 1. Complexity
+There are four measures that I have included in order to measure the complexity of a text. These are big words (BW), mean sentence length (MSL), lexical density (LD), and type-token ratio (TTR).
+
+# 1.1. Big Words (BW)
+To be done using LIWC.
+
+```{R}
+# Big words = Sixltr in LIWC
+summary(alltexts_LIWC$Sixltr[alltexts_LIWC$Party.General == "Democrat"])
+summary(alltexts_LIWC$Sixltr[alltexts_LIWC$Party.General == "Republican"])
+
+# Seems to be more or less identical
+
+# Multiple Linear Regression for big words (BW)
+fit <- lm(ipron ~ Party.General + Sex + age + educ + seniority + Region +
+            Christian + statevote_2016, 
+          data = alltexts_LIWC[alltexts_LIWC$speechcount > 9, ])
+# + statevote_2016
+# show results
+summary(fit)
+
+# Multiple Linear Regression for Positive Emotion with interaction term
+fit <- lm(social ~ Party.General + Sex + age + educ + seniority + Region +
+            Christian + statevote_2016 + Party.General:Sex, # interaction term 
+          data = alltexts_LIWC[alltexts_LIWC$speechcount > 0, ])
+
+```
+
+# 1.2. Mean Sentence Length (MSL)
+To be done using LIWC.
+
+```{R}
+# Republicans use slightly longer sentences? WPS = words per sentence?
+summary(alltexts_LIWC$WPS[alltexts_LIWC$Party.General == "Democrat"])
+summary(alltexts_LIWC$WPS[alltexts_LIWC$Party.General == "Republican"])
+```
+
+# 1.3. Lexical Density (LD)
+LD = % of lexical words = 1 - % of function words 
+
+Lexical words = nouns, names, adjectives, verbs, and adverbs
+
+Function words = determiners, pronouns, prepositions, modal verbs, conjuctions, auxiliary verbs, etc. 
+
+
+```{R}
+# Percentage of function words, higher for Republicans? But not meaningful?
+summary(alltexts_LIWC$function.[alltexts_LIWC$Party.General == "Democrat"])
+summary(alltexts_LIWC$function.[alltexts_LIWC$Party.General == "Republican"])
+
+```
+
+# 1.4. Type-Token Ratio
+The relationship between the vocabulary size and the number of word types.
+
+Vocabulary size / text length
+Number of types / number of tokens
+
+```{R}
+# Types from after stemming? 
+
+# Tokess from WC (word count)
+
+#alltexts_LIWC$
+
+```
+
+# Tone
+LIWC variable Emotional Tone (Tone)
+```{R}
+# Emotional Tone? 
+summary(alltexts_LIWC$Tone[alltexts_LIWC$Party.General == "Democrat"])
+summary(alltexts_LIWC$Tone[alltexts_LIWC$Party.General == "Republican"])
+
+# Multiple Linear Regression for Tone
+fit <- lm(Tone ~ Party.General + Sex + age + educ + seniority + Region +
+            Christian + statevote_2016, 
+          data = alltexts_LIWC[alltexts_LIWC$speechcount > 9, ])
+# + statevote_2016
+# show results
+summary(fit)
+
+  ```
+
+
+## 2. Parts of Speech
+
+# 2.1. Noun Phrases vs. Verb Phrases
+Function words vs. ?
+
+```{R}
+
+
+```
+
+
+# 2.2. Pronouns
+There are a couple of different variables for pronouns, the general one is "pronoun", with specific variables for first person singular/plural, you, etc. 
+
+```{R}
+# Percentage of pronoun usage
+summary(alltexts_LIWC$pronoun[alltexts_LIWC$Party.General == "Democrat"])
+summary(alltexts_LIWC$pronoun[alltexts_LIWC$Party.General == "Republican"])
+
+# ...
+ 
+```
+
+# 2.3. Prepositions
+To be done using LIWC.
+
+```{R}
+```
+
+
+## 3. Emotionality
+
+# Lexicoder Sentiment Decoder (LSD)
+For the initial analysis of emotionality in the texts I used the Lexicoder Sentiment Decoder from Young and Soroka (2012). LSD is available as add-on to the quanteda package. 
+
+```{R}
+# Apply LSD dictionary to my_corpus and save the output to a separate file
+output_lsd <- liwcalike(my_corpus, dictionary = data_dictionary_NRC)
+
+# View the first couple of rows
+head(output_lsd)
+```
+
+```{R}
+# Add variables to dataframe
+alltexts_clean$anger <- output_lsd$anger
+alltexts_clean$positive <- output_lsd$positive
+alltexts_clean$negative <- output_lsd$negative
+alltexts_clean$fear <- output_lsd$fear
+alltexts_clean$joy <- output_lsd$joy
+alltexts_clean$disgust <- output_lsd$disgust
+alltexts_clean$trust <- output_lsd$trust
+alltexts_clean$sadness <- output_lsd$sadness
+```
+
+```{R}
+# Save dataframe as R file
+saveRDS(alltexts_clean, file = "alltexts_clean_lsd.rds")
+```
+
+The package sjPlot helps plotting Word output.
+
+```{R}
+library('sjPlot')
+
+# compute descriptive statistics
+# tab_df(alltexts_clean[,3:5])
+```
+
+Descriptive measures of the variables. 
+
+```{R}
+library('Hmisc')
+
+vars <- c('Sex','Region','Party.General','Christian','age','seniority',
+          'educ','JD_degree','speechcount','anger','positive','negative',
+          'fear','joy','disgust','trust')
+
+describe(alltexts_clean[,vars])
+```
+
+The correlations between speechcount and measures of emotionality are almost non-existant, which is a good sign for my analysis, it means that the speech count does not affect the emotionality measures. 
+
+```{R}
+library('corrplot')
+
+vars_corr <- c('age','seniority','speechcount','anger','positive',
+               'negative','fear','joy','disgust','trust')
+
+M <- cor(as.matrix(alltexts_clean[,vars_corr]))
+
+# mat : is a matrix of data
+# ... : further arguments to pass to the native R cor.test function
+cor.mtest <- function(mat, ...) {
+    mat <- as.matrix(mat)
+    n <- ncol(mat)
+    p.mat<- matrix(NA, n, n)
+    diag(p.mat) <- 0
+    for (i in 1:(n - 1)) {
+        for (j in (i + 1):n) {
+            tmp <- cor.test(mat[, i], mat[, j], ...)
+            p.mat[i, j] <- p.mat[j, i] <- tmp$p.value
+        }
+    }
+  colnames(p.mat) <- rownames(p.mat) <- colnames(mat)
+  p.mat
+}
+
+# matrix of the p-value of the correlation
+p.mat <- cor.mtest(as.matrix(alltexts_clean[,vars_corr]))
+
+# Leave blank on no significant coefficient
+corrplot(M, type = "upper", order = "hclust", p.mat = p.mat, 
+         sig.level = 0.01, insig = "blank")
+
+col <- colorRampPalette(c("#BB4444", "#EE9988", "#FFFFFF", "#77AADD", "#4477AA"))
+corrplot(M, method="color", col=col(200),  
+         type="upper", order="hclust", 
+         addCoef.col = "black", # Add coefficient of correlation
+         tl.col="black", tl.srt=45, #Text label color and rotation
+         # Combine with significance
+         p.mat = p.mat, sig.level = 0.01, insig = "blank", 
+         # hide correlation coefficient on the principal diagonal
+         diag = FALSE)
+```
+
+# 3.1. Positive Emotion
+
+```{R}
+library(ggthemes)
+library(grid)
+
+fill <- "#4271AE"
+line <- "#1F3552"
+
+# Boxplot for Postive emotion
+p10 <- ggplot(alltexts_clean, aes(x = Party.General, y = positive)) +
+        geom_boxplot(fill = fill, colour = line) +
+        scale_y_continuous(name = "LSD Positive",
+                           breaks = seq(0, 15, 1),
+                           limits=c(0, 15)) +
+        scale_x_discrete(name = "Party") +
+        ggtitle("Title") +
+        theme_economist() +
+        theme(axis.line.x = element_line(size = 0.5, colour = "black"),
+              axis.line.y = element_line(size = 0.5, colour = "black"),
+              legend.position = "bottom", legend.direction = "horizontal",
+              legend.box = "horizontal",
+              legend.key.size = unit(1, "cm"),
+              plot.title = element_text(family="Tahoma"),
+              text = element_text(family = "Tahoma"),
+              axis.title = element_text(size = 12),
+              legend.text = element_text(size = 9),
+              legend.title=element_text(face = "bold", size = 9))
+
+# View plot (best if enterest in the console)
+p10
+
+
+
+# Boxplot for both Positive and Negative emotion
+df1 <- alltexts_clean[,c('Party.General','positive')]
+df2 <- alltexts_clean[,c('Party.General','negative')]
+
+colnames(df1) <- c('party','value')
+colnames(df2) <- c('party','value')
+
+df1$score <- 'positive'
+df2$score <- 'negative'
+
+df <- rbind(df1, df2)
+
+df$score <- factor(df$score)
+
+p11 <- ggplot(df, aes(x = party, y = value)) +
+        geom_boxplot(fill = fill, colour = line,
+                     alpha = 0.7) +
+        scale_y_continuous(name = "Score",
+                           breaks = seq(0, 15, 2),
+                           limits=c(0, 15)) +
+        scale_x_discrete(name = "Party") +
+        ggtitle("Boxplot of positive and negative emotion by party") +
+        theme_bw() +
+        theme(plot.title = element_text(size = 14, family = "Tahoma", face = "bold"),
+              text = element_text(size = 12, family = "Tahoma"),
+              axis.title = element_text(face="bold"),
+              axis.text.x=element_text(size = 11)) +
+        facet_grid(. ~ score)
+p11
+
+# Boxplot for both Anger and Joy
+df1 <- alltexts_clean[,c('Party.General','anger')]
+df2 <- alltexts_clean[,c('Party.General','joy')]
+
+colnames(df1) <- c('party','value')
+colnames(df2) <- c('party','value')
+
+df1$score <- 'anger'
+df2$score <- 'joy'
+
+df <- rbind(df1, df2)
+
+df$score <- factor(df$score)
+
+p12 <- ggplot(df, aes(x = party, y = value)) +
+        geom_boxplot(fill = fill, colour = line,
+                     alpha = 0.7) +
+        scale_y_continuous(name = "Score",
+                           breaks = seq(0, 5, 1),
+                           limits=c(0, 5)) +
+        scale_x_discrete(name = "Party") +
+        ggtitle("Boxplot of emotions anger and joy by party") +
+        theme_bw() +
+        theme(plot.title = element_text(size = 14, family = "Tahoma", face = "bold"),
+              text = element_text(size = 12, family = "Tahoma"),
+              axis.title = element_text(face="bold"),
+              axis.text.x=element_text(size = 11)) +
+        facet_grid(. ~ score)
+p12
+
+# Boxplot for both Fear and Trust 
+df1 <- alltexts_clean[,c('Party.General','fear')]
+df2 <- alltexts_clean[,c('Party.General','trust')]
+
+colnames(df1) <- c('party','value')
+colnames(df2) <- c('party','value')
+
+df1$score <- 'fear'
+df2$score <- 'trust'
+
+df <- rbind(df1, df2)
+
+df$score <- factor(df$score)
+
+p13 <- ggplot(df, aes(x = party, y = value)) +
+        geom_boxplot(fill = fill, colour = line,
+                     alpha = 0.7) +
+        scale_y_continuous(name = "Score",
+                           breaks = seq(0, 11, 1),
+                           limits=c(0, 11)) +
+        scale_x_discrete(name = "Party") +
+        ggtitle("Boxplot of emotions fear and trust by party") +
+        theme_bw() +
+        theme(plot.title = element_text(size = 14, family = "Tahoma", face = "bold"),
+              text = element_text(size = 12, family = "Tahoma"),
+              axis.title = element_text(face="bold"),
+              axis.text.x=element_text(size = 11)) +
+        facet_grid(. ~ score)
+p13
+
+# Boxplot for both Fear and Trust 
+df1 <- alltexts_clean[,c('Party.General','disgust')]
+df2 <- alltexts_clean[,c('Party.General','sadness')]
+
+colnames(df1) <- c('party','value')
+colnames(df2) <- c('party','value')
+
+df1$score <- 'disgust'
+df2$score <- 'sadness'
+
+df <- rbind(df1, df2)
+
+df$score <- factor(df$score)
+
+p14 <- ggplot(df, aes(x = party, y = value)) +
+        geom_boxplot(fill = fill, colour = line,
+                     alpha = 0.7) +
+        scale_y_continuous(name = "Score",
+                           breaks = seq(0, 7, 1),
+                           limits=c(0, 7)) +
+        scale_x_discrete(name = "Party") +
+        ggtitle("Boxplot of emotions disgust and sadness by party") +
+        theme_bw() +
+        theme(plot.title = element_text(size = 14, family = "Tahoma", face = "bold"),
+              text = element_text(size = 12, family = "Tahoma"),
+              axis.title = element_text(face="bold"),
+              axis.text.x=element_text(size = 11)) +
+        facet_grid(. ~ score)
+p14
+
+
+# Set color by cond
+ggplot(alltexts_clean, aes(x = age, y = positive, color = Party.General)) +
+  geom_point(shape = 1)
+
+```
+
+Some remarks with regard to (one-way) ANOVA:
+(paraphrase this!)
+- two sources of variability in the data: variability within one party and variability between the two parties
+- we are interested in the following question: are the differences in the means between the two parties significant or are they due to chance?
+- assumptions of ANOVA: errors (residuals) are normally distributed and independent of each other and their variance is constant
+- null hypothesis: alphas are zero
+- in the case of two groups (Democrats and Republicans), the one-way ANOVA is equivalent to a two-sample t-test
+- hence, it might make sense to simply use a t-test
+- assumptions t-test: two samples are independent, they can have a different variance, and they are normally distributed
+- to be safe, we also perform a non-parametric Mann-Whitney test which is also absolutely significant
+
+```{R}
+# mean of positive emotion by party
+mean(alltexts_clean$positive[alltexts_clean$Party.General == 'Democratic'])
+mean(alltexts_clean$positive[alltexts_clean$Party.General == 'Republican'])
+
+# (one-way) ANOVA
+fit <- aov(positive ~ Party.General, data = alltexts_clean)
+
+# show results
+summary(fit)
+
+# t-test of two independent samples (Democrats vs. Republcans)
+t.test(alltexts_clean$positive ~ alltexts_clean$Party.General, 
+       alternative = 'two.sided', conf.level = 0.95)
+
+# QQ plots for Democrats and Republicans
+qqnorm(alltexts_clean$positive[alltexts_clean$Party.General == 'Democratic'],
+       main = 'Democrats')
+qqline(alltexts_clean$positive[alltexts_clean$Party.General == 'Democratic'])
+
+qqnorm(alltexts_clean$positive[alltexts_clean$Party.General == 'Republican'],
+       main = 'Republicans')
+qqline(alltexts_clean$positive[alltexts_clean$Party.General == 'Republican'])
+
+# independent 2-group Mann-Whitney U Test 
+wilcox.test(alltexts_clean$positive ~ alltexts_clean$Party.General)
+```
+
+Some remarks with regard to regression analysis:
+- variable description table
+- summary statistics
+- correlation matrix
+- regression analysis (multiple models)
+- check assumptions (potentially use logarithmic transformtion)
+- sensitivity analysis (check interaction effects)
+
+```{R}
+# Multiple Linear Regression for Positive Emotion
+fit <- lm(negative ~ Party.General + Sex + age + educ + seniority + Region +
+            Christian + statevote_2016, 
+          data = lsd[lsd$speechcount > 0, ])
+
+# + statevote_2016
+# show results
+summary(fit)
+
+# Multiple Linear Regression for Positive Emotion with interaction term
+fit <- lm(negative ~ Party.General + Sex + age + educ + seniority + Region +
+            Christian + Party.General:Sex, # interaction term 
+          data = alltexts_clean_lsd[alltexts_clean_lsd$speechcount > 0, ])
+
+```
+
+```{R}
+# Scatterplot of most used positive/negative words from LSD
+                                                                                                                                                                                                                                                                                                                                                  
+
+```
+
+
+```{R}
+# Diagnostic plots (QQ, et al.)
+layout(matrix(c(1,2,3,4), 2, 2))
+plot(fit)
+
+# Boxplot for Positive affect
+boxplot(positive ~ Party.General,data = alltexts_clean[alltexts_clean$speechcount > 9,], 
+        main="Positive Affect", 
+        xlab = "Party", ylab = "Positive Affect")
+```
+
+# 3.2. Negative Emotion
+
+# Principal Component Analysis
+
+```{R}
+#install_github("vqv/ggbiplot")
+library("ggbiplot")
+
+df_pca <- prcomp(alltexts_clean[,colnames(alltexts_clean) %in% c("positive", "negative", "anger", "joy", "sadness", "disgust")], center = TRUE,scale. = TRUE)
+
+summary(df_pca)
+
+# Plot PCA
+ggbiplot(df_pca)
+
+# basic plot
+pcanames <- ggbiplot(df_pca, labels = alltexts_clean$Name)
+
+# without lables
+pca_plot <- ggbiplot(df_pca, ellipse=TRUE, obs.scale = .5, var.scale = .5, groups = alltexts_clean$Party.General) +
+  scale_colour_manual(name = "Party", values = c("dark blue", "red")) +
+  ggtitle("") +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+
+# with lables
+pca_plot <- ggbiplot(df_pca, ellipse=TRUE, obs.scale = .5, var.scale = .5, lables = alltexts_clean$Name, groups = alltexts_clean$Party.General) +
+  geom_text(aes(label = alltexts_clean$Name),hjust=0, vjust=0, size = 3) +
+  scale_colour_manual(name = "Party", values = c("dark blue", "red")) +
+  ggtitle("") +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+  
+
+# Should also include complexity in another version of this plot
+
+```
+
+# 3.3. Anger
+
+```{R}
+```
+
+# 3.4. Joy
+
+```{R}
+```
+
+# 3.5. Fear
+
+```{R}
+```
+
+## Emotion analysis using LIWC
+
+# What do the dictionaries contain?
+```{R}
+LIWCdic <- readRDS("read_dict_liwc_LIWC2001.rds")
+
+# Should use this to find the words contained in the individual dictionaries?
+
+```
+
+# Messing around
+```{r}
+table(lsd$Sex, lsd$Party.General, lsd$Christian)
+summary(lsd$seniority)
+```
+
+
+```{r}
+# POS tagging
+
+spacy_install()
+spacy_initialize()
+library("spacyr")
+library("quanteda")
+# create a corpus
+
+lsd_corpus <- corpus(lsd)
+
+summary(lsd_corpus)$Tokens
+
+no_tokens <- ntoken(lsd_corpus)
+
+#spacy_initialize(model = "en")
+#lsd_par <- spacy_parse(lsd_corpus, tag = TRUE, pos = TRUE)
+
+head(lsd_par)
+
+# Save created POS tagged file as an RDS file
+# saveRDS(lsd_par, "lsd_pos_tagged.rds")
+
+# Load POS tagged file
+POS <- readRDS("lsd_pos_tagged.rds")
+
+
+
+df1 <- POS[, c("doc_id", "pos")]
+
+df1$ID <- as.integer(gsub('text', '', df1$doc_id))
+
+library(dplyr)
+
+df2 <- group_by(df1, ID) %>%
+  summarise(count_verbs = sum(pos == 'VERB'), 
+            count_nouns = sum(pos == 'NOUN'), 
+            count_pnouns = sum(pos == 'PROPN'))
+
+df2$count_nouns_total <- df2$count_nouns + df2$count_pnouns
+
+df2$no_tokens <- no_tokens
+
+df2$verb <- df2$count_verbs/df2$no_tokens
+df2$noun <- df2$count_nouns/df2$no_tokens
+df2$noun_total <- df2$count_nouns_total/df2$no_tokens
+
+# add to original LSD file
+pos_df <- left_join(lsd, df2[,c('ID','verb','noun','noun_total')], by = 'ID')
+
+#save as RDS file
+saveRDS(pos_df,"pos_results.rds")
+
+table(liwc$Region)
+```
+
+
+Correlation plot for LIWC variables
+```{r}
+# select relevant variables
+vars_corr <- c('age','seniority','positive','negative', 'verb', 'noun', 'noun_total')
+
+# create matrix
+M <- cor(as.matrix(pos_df[,vars_corr]))
+
+# mat : is a matrix of data
+# ... : further arguments to pass to the native R cor.test function
+cor.mtest <- function(mat, ...) {
+    mat <- as.matrix(mat)
+    n <- ncol(mat)
+    p.mat<- matrix(NA, n, n)
+    diag(p.mat) <- 0
+    for (i in 1:(n - 1)) {
+        for (j in (i + 1):n) {
+            tmp <- cor.test(mat[, i], mat[, j], ...)
+            p.mat[i, j] <- p.mat[j, i] <- tmp$p.value
+        }
+    }
+  colnames(p.mat) <- rownames(p.mat) <- colnames(mat)
+  p.mat
+}
+
+# matrix of the p-value of the correlation
+p.mat <- cor.mtest(as.matrix(pos_df[,vars_corr]))
+
+# define colors
+col <- colorRampPalette(c("#BB4444", "#EE9988", "#FFFFFF", "#77AADD", "#4477AA"))
+
+# create correlation plot
+corrplot(M, method="color", col=col(200),  
+         type="upper", order="hclust", 
+         addCoef.col = "black", # Add coefficient of correlation
+         tl.col="black", tl.srt=45, #Text label color and rotation
+         # Combine with significance
+         p.mat = p.mat, sig.level = 0.01, insig = "blank", 
+         # hide correlation coefficient on the principal diagonal
+         diag = FALSE)
+
+```
+
+
